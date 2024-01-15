@@ -1,41 +1,43 @@
-from bluepy.btle import Scanner, DefaultDelegate, Peripheral
-import struct
+import time
+import pygatt
 
 # Define the UUIDs for the Heart Rate Service and the Heart Rate Measurement Characteristic
 HR_SERVICE_UUID = "0000180d-0000-1000-8000-00805f9b34fb"
 HR_MEASUREMENT_UUID = "00002a37-0000-1000-8000-00805f9b34fb"
 
-# Create a BLE delegate class to handle notifications
-class HRNotificationDelegate(DefaultDelegate):
-    def handleNotification(self, cHandle, data):
-        # Parse the heart rate measurement data
-        bpm = struct.unpack('B', data[1])[0]
-        print("Heart Rate:", bpm)
+def handle_notification(handle, value_bytes):
+    # Parse the heart rate measurement data
+    bpm = value_bytes[1]
+    print("Heart Rate:", bpm)
 
 def main():
+    adapter = pygatt.GATTToolBackend()
+
     try:
+        adapter.start()
+        
         # Scan for the heart rate monitor device
-        scanner = Scanner().withDelegate(DefaultDelegate())
-        devices = scanner.scan(5)  # Scan for 5 seconds (adjust as needed)
+        devices = adapter.scan(run_as_root=True, timeout=5)  # Scan for 5 seconds (adjust as needed)
         
         for device in devices:
-            if device.addr == 'YOUR_HEART_RATE_MONITOR_MAC_ADDRESS':
+            if device['address'] == 'YOUR_HEART_RATE_MONITOR_MAC_ADDRESS':
                 print("Found Heart Rate Monitor")
-                peripheral = Peripheral(device)
+                device_address = device['address']
+                
+                # Connect to the heart rate monitor
+                device = adapter.connect(device_address)
                 
                 # Enable notifications for the Heart Rate Measurement Characteristic
-                peripheral.setDelegate(HRNotificationDelegate())
-                hr_service = peripheral.getServiceByUUID(HR_SERVICE_UUID)
-                hr_measurement_char = hr_service.getCharacteristics(uuid=HR_MEASUREMENT_UUID)[0]
-                peripheral.writeCharacteristic(hr_measurement_char.valHandle + 1, b"\x01\x00", withResponse=True)
+                device.subscribe(HR_MEASUREMENT_UUID, callback=handle_notification)
                 
                 # Keep the script running to receive notifications
                 while True:
-                    if peripheral.waitForNotifications(1.0):
-                        continue
+                    time.sleep(1)
     
     except KeyboardInterrupt:
         pass
+    finally:
+        adapter.stop()
 
 if __name__ == "__main__":
     main()
